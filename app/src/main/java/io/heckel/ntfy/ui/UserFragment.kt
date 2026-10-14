@@ -35,6 +35,7 @@ class UserFragment : DialogFragment() {
     private lateinit var baseUrlViewLayout: TextInputLayout
     private lateinit var baseUrlView: TextInputEditText
     private lateinit var usernameView: TextInputEditText
+    private lateinit var passwordViewLayout: TextInputLayout
     private lateinit var passwordView: TextInputEditText
 
     interface UserDialogListener {
@@ -58,9 +59,10 @@ class UserFragment : DialogFragment() {
         val baseUrl = arguments?.getString(BUNDLE_BASE_URL)
         val username = arguments?.getString(BUNDLE_USERNAME)
         val password = arguments?.getString(BUNDLE_PASSWORD)
+        val token = arguments?.getString(BUNDLE_TOKEN)
 
         if (baseUrl != null && username != null && password != null) {
-            user = User(baseUrl, username, password)
+            user = User(baseUrl, username, password, token)
         }
 
         // Required for validation
@@ -98,6 +100,7 @@ class UserFragment : DialogFragment() {
         baseUrlViewLayout = view.findViewById(R.id.user_dialog_base_url_layout)
         baseUrlView = view.findViewById(R.id.user_dialog_base_url)
         usernameView = view.findViewById(R.id.user_dialog_username)
+        passwordViewLayout = view.findViewById(R.id.user_dialog_password_layout)
         passwordView = view.findViewById(R.id.user_dialog_password)
 
         if (user == null) {
@@ -107,6 +110,16 @@ class UserFragment : DialogFragment() {
             passwordView.hint = getString(R.string.user_dialog_password_hint_add)
             saveMenuItem.setTitle(R.string.user_dialog_button_add)
             deleteMenuItem.isVisible = false
+        } else if (user!!.token != null) {
+            // The token is tied to the server account, so renaming the user or setting a password would break it
+            toolbar.setTitle(R.string.user_dialog_title_edit)
+            descriptionView.text = getString(R.string.user_dialog_description_token)
+            baseUrlViewLayout.visibility = View.GONE
+            usernameView.setText(user!!.username)
+            usernameView.isEnabled = false
+            passwordViewLayout.visibility = View.GONE
+            saveMenuItem.isVisible = false
+            deleteMenuItem.isVisible = true
         } else {
             toolbar.setTitle(R.string.user_dialog_title_edit)
             descriptionView.text = getString(R.string.user_dialog_description_edit)
@@ -147,6 +160,7 @@ class UserFragment : DialogFragment() {
 
     override fun onResume() {
         super.onResume()
+        if (user?.token != null) return // Nothing to edit
         // Show keyboard after the dialog is fully visible
         val focusView = if (user != null) usernameView else baseUrlView
         focusView.postDelayed({
@@ -219,6 +233,7 @@ class UserFragment : DialogFragment() {
         private const val BUNDLE_BASE_URL = "baseUrl"
         private const val BUNDLE_USERNAME = "username"
         private const val BUNDLE_PASSWORD = "password"
+        private const val BUNDLE_TOKEN = "token"
         private const val BUNDLE_BASE_URLS_IN_USE = "baseUrlsInUse"
 
         fun newInstance(user: User?, baseUrlsInUse: ArrayList<String>): UserFragment {
@@ -229,6 +244,7 @@ class UserFragment : DialogFragment() {
                 args.putString(BUNDLE_BASE_URL, user.baseUrl)
                 args.putString(BUNDLE_USERNAME, user.username)
                 args.putString(BUNDLE_PASSWORD, user.password)
+                args.putString(BUNDLE_TOKEN, user.token)
             }
             fragment.arguments = args
             return fragment

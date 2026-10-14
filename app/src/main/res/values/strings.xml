@@ -178,6 +178,13 @@
     <string name="detail_instant_delivery_enabled">Instant delivery on</string>
     <string name="detail_instant_delivery_disabled">Instant delivery off</string>
     <string name="detail_deep_link_subscribed_toast_message">Subscribed to topic %1$s</string>
+    <string name="detail_deep_link_signed_in_toast">Signed in as %1$s and subscribed to topic %2$s</string>
+    <string name="detail_deep_link_error_insecure_code">Cannot sign in: Enrollment links are only accepted over HTTPS. Remove secure=false from the link.</string>
+    <string name="detail_deep_link_error_other_user">Cannot use this link: You are already signed in to this server as \"%1$s\". Remove that user in the settings first.</string>
+    <string name="detail_deep_link_error_authorization_header">Cannot sign in: A custom Authorization header is set for this server.</string>
+    <string name="detail_deep_link_error_code_invalid">Cannot sign in: The enrollment code is invalid, already used or expired. Ask for a new link.</string>
+    <string name="detail_deep_link_error_server_unsupported">Cannot sign in: The server does not support enrollment codes.</string>
+    <string name="detail_deep_link_error_redeem_failed">Cannot sign in: %1$s</string>
     <string name="detail_item_tags">Tags: %1$s</string>
     <string name="detail_item_snack_deleted">Notification deleted</string>
     <string name="detail_item_snack_undo">Undo</string>
@@ -388,6 +395,7 @@
     <string name="settings_general_users_prefs_title">Users</string>
     <string name="settings_general_users_prefs_user_not_used">Not used by any topics</string>
     <string name="settings_general_users_prefs_user_used_by_one">Used by topic %1$s</string>
+    <string name="settings_general_users_prefs_user_token">Signed in with access token. %1$s</string>
     <string name="settings_general_users_prefs_user_used_by_many">Used by topics %1$s</string>
     <string name="settings_general_users_prefs_user_add">Add users</string>
     <string name="settings_general_users_prefs_user_add_title">Add new user</string>
@@ -519,6 +527,7 @@
     <string name="user_dialog_title_add">Add user</string>
     <string name="user_dialog_title_edit">Edit user</string>
     <string name="user_dialog_description_add">You can add a user here. All topics for the given server will use this user.</string>
+    <string name="user_dialog_description_token">This user signed in with an access token from an enrollment link. It cannot be edited, but you may delete it.</string>
     <string name="user_dialog_description_edit">You may edit username/password for the selected user, or delete it.</string>
     <string name="user_dialog_base_url_error_authorization_header_exists">Cannot add user if custom Authorization header is set for this server</string>
     <string name="user_dialog_username_hint">Username</string>

@@ -241,11 +241,7 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
         // Add scrub terms to log (in case it gets exported) // FIXME this should be in Log.getFormatted
         repository.getUsersLiveData().observe(this) {
             it?.let { users ->
-                users.forEach { u ->
-                    Log.addScrubTerm(shortUrl(u.baseUrl), Log.TermType.Domain)
-                    Log.addScrubTerm(u.username, Log.TermType.Username)
-                    Log.addScrubTerm(u.password, Log.TermType.Password)
-                }
+                users.forEach { Log.addScrubTerms(it) }
             }
         }
 

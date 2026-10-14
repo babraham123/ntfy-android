@@ -74,7 +74,9 @@ object HttpUtil {
         val builder = Request.Builder()
             .url(url)
             .addHeader("User-Agent", USER_AGENT)
-        if (user != null) {
+        if (user?.token != null) {
+            builder.addHeader("Authorization", "Bearer ${user.token}")
+        } else if (user != null) {
             builder.addHeader("Authorization", Credentials.basic(user.username, user.password, UTF_8))
         }
         customHeaders.forEach { header ->

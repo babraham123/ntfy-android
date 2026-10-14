@@ -626,11 +626,7 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                         Log.addScrubTerm(shortUrl(s.baseUrl), Log.TermType.Domain)
                         Log.addScrubTerm(s.topic)
                     }
-                    repository.getUsers().forEach { u ->
-                        Log.addScrubTerm(shortUrl(u.baseUrl), Log.TermType.Domain)
-                        Log.addScrubTerm(u.username, Log.TermType.Username)
-                        Log.addScrubTerm(u.password, Log.TermType.Password)
-                    }
+                    repository.getUsers().forEach { Log.addScrubTerms(it) }
                 }
                 true
             }
@@ -963,12 +959,17 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                 users.forEach { user ->
                     val preference = Preference(preferenceScreen.context)
                     preference.title = user.user.username
-                    preference.summary = if (user.topics.isEmpty()) {
+                    val usage = if (user.topics.isEmpty()) {
                         getString(R.string.settings_general_users_prefs_user_not_used)
                     } else if (user.topics.size == 1) {
                         getString(R.string.settings_general_users_prefs_user_used_by_one, user.topics[0])
                     } else {
                         getString(R.string.settings_general_users_prefs_user_used_by_many, user.topics.joinToString(", "))
+                    }
+                    preference.summary = if (user.user.token != null) {
+                        getString(R.string.settings_general_users_prefs_user_token, usage)
+                    } else {
+                        usage
                     }
                     preference.onPreferenceClickListener = OnPreferenceClickListener { _ ->
                         activity?.let {

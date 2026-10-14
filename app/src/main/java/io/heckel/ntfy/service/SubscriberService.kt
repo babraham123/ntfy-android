@@ -238,7 +238,7 @@ class SubscriberService : Service() {
                 // trigger a new connection, and close existing connections. We want to make sure that when the
                 // connection protocol (JSON/WS), the user or the custom headers are updated, that we kill existing
                 // connections and start new ones.
-                val credentialsHash = repository.getUser(baseUrl)?.let { "${it.username}:${it.password}".hashCode() } ?: 0
+                val credentialsHash = repository.getUser(baseUrl)?.let { "${it.username}:${it.password}:${it.token}".hashCode() } ?: 0
                 val headersHash = repository.getCustomHeaders(baseUrl)
                     .sortedBy { "${it.name}:${it.value}" }
                     .joinToString(",") { "${it.name}:${it.value}" }

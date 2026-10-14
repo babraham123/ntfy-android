@@ -4,7 +4,9 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.content.Intent.ACTION_VIEW
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.text.Html
 import android.view.Menu
 import android.view.MenuItem
@@ -36,11 +38,14 @@ import io.heckel.ntfy.app.Application
 import io.heckel.ntfy.db.Notification
 import io.heckel.ntfy.db.Repository
 import io.heckel.ntfy.db.Subscription
+import io.heckel.ntfy.db.User
 import io.heckel.ntfy.firebase.FirebaseMessenger
 import io.heckel.ntfy.msg.ApiService
 import io.heckel.ntfy.msg.NotificationService
 import io.heckel.ntfy.msg.Poller
+import io.heckel.ntfy.msg.TokenRedeemer
 import io.heckel.ntfy.service.SubscriberServiceManager
+import io.heckel.ntfy.util.EnrollLink
 import io.heckel.ntfy.util.Log
 import io.heckel.ntfy.util.copyToClipboard
 import io.heckel.ntfy.util.dangerButton
@@ -200,82 +205,150 @@ class DetailActivity : AppCompatActivity(), NotificationFragment.NotificationSet
     }
 
     private fun maybeSubscribeAndLoadView(url: Uri) {
-        if (url.pathSegments.size != 1) {
+        val link = EnrollLink.parse(url.toString())
+        if (link == null) {
             Log.w(TAG, "Invalid link $url. Aborting.")
             finish()
             return
         }
-        val secure = url.getBooleanQueryParameter("secure", true) // Default to https://
-        val displayName = url.getQueryParameter("display")
-        val baseUrl = extractBaseUrl(url, secure)
-        val topic = url.pathSegments.first()
+        title = topicShortUrl(link.baseUrl, link.topic)
 
-        title = topicShortUrl(baseUrl, topic)
-
-        // Subscribe to topic if it doesn't already exist
         lifecycleScope.launch(Dispatchers.IO) {
-            var subscription = repository.getSubscription(baseUrl, topic)
-            if (subscription == null) {
-                val instant = baseUrl != appBaseUrl
-                subscription = Subscription(
-                    id = randomSubscriptionId(),
-                    baseUrl = baseUrl,
-                    topic = topic,
-                    instant = instant,
-                    dedicatedChannels = false,
-                    mutedUntil = 0,
-                    minPriority = Repository.MIN_PRIORITY_USE_GLOBAL,
-                    autoDelete = Repository.AUTO_DELETE_USE_GLOBAL,
-                    insistent = Repository.INSISTENT_MAX_PRIORITY_USE_GLOBAL,
-                    lastNotificationId = null,
-                    icon = null,
-                    upAppId = null,
-                    upConnectorToken = null,
-                    displayName = displayName,
-                    totalCount = 0,
-                    newCount = 0,
-                    lastActive = Date().time/1000
-                )
-                repository.addSubscription(subscription)
-
-                // Subscribe to Firebase topic if ntfy.sh (even if instant, just to be sure!)
-                if (baseUrl == appBaseUrl) {
-                    Log.d(TAG, "Subscribing to Firebase topic $topic")
-                    messenger.subscribe(topic)
+            val savedUser = repository.getUser(link.baseUrl)
+            val hasCustomAuthHeader = repository.getCustomHeaders(link.baseUrl)
+                .any { it.name.equals("Authorization", ignoreCase = true) }
+            val signedInAs = when (val decision = EnrollLink.decide(link, savedUser, hasCustomAuthHeader)) {
+                is EnrollLink.Decision.Refuse -> {
+                    Log.w(TAG, "Refusing link for ${link.baseUrl}: ${decision.reason}")
+                    finishWithError(refuseMessage(decision.reason, savedUser?.username))
+                    return@launch
                 }
-
-                // Fetch cached messages
-                try {
-                    poller.poll(subscription)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Unable to fetch notifications: ${e.message}", e)
-                }
-
-                runOnUiThread {
-                    val message = getString(R.string.detail_deep_link_subscribed_toast_message, topicShortUrl(baseUrl, topic))
-                    Toast.makeText(this@DetailActivity, message, Toast.LENGTH_LONG).show()
-                }
+                EnrollLink.Decision.Redeem -> redeemEnrollmentCode(link) ?: return@launch
+                EnrollLink.Decision.Subscribe -> null
             }
-
-            // Add extras needed in loadView(); normally these are added in MainActivity
-            intent.putExtra(MainActivity.EXTRA_SUBSCRIPTION_ID, subscription.id)
-            intent.putExtra(MainActivity.EXTRA_SUBSCRIPTION_BASE_URL, subscription.baseUrl)
-            intent.putExtra(MainActivity.EXTRA_SUBSCRIPTION_TOPIC, subscription.topic)
-            intent.putExtra(MainActivity.EXTRA_SUBSCRIPTION_DISPLAY_NAME, displayName(appBaseUrl, subscription))
-            intent.putExtra(MainActivity.EXTRA_SUBSCRIPTION_INSTANT, subscription.instant)
-            intent.putExtra(MainActivity.EXTRA_SUBSCRIPTION_MUTED_UNTIL, subscription.mutedUntil)
-
-            runOnUiThread {
-                loadView()
-            }
+            subscribeAndLoadView(link, signedInAs)
         }
     }
 
-    fun extractBaseUrl(url: Uri, secure: Boolean): String {
-        if (secure) {
-            return if (url.port != 443 && url.port != -1) "https://${url.host}:${url.port}" else "https://${url.host}"
+    /** Exchanges the link's code for a token and saves it as the server's user. Returns the username, or null on failure. */
+    private suspend fun redeemEnrollmentCode(link: EnrollLink): String? {
+        val redeemed = try {
+            api.redeemToken(link.baseUrl, link.code!!, deviceLabel())
+        } catch (e: TokenRedeemer.ServerUnsupportedException) {
+            Log.w(TAG, "Server ${link.baseUrl} does not support enrollment codes", e)
+            finishWithError(getString(R.string.detail_deep_link_error_server_unsupported))
+            return null
+        } catch (e: ApiService.ApiException) {
+            Log.w(TAG, "Unable to redeem enrollment code: ${e.message}", e)
+            finishWithError(if (e.code == TokenRedeemer.ERROR_CODE_INVALID_CODE) {
+                getString(R.string.detail_deep_link_error_code_invalid)
+            } else {
+                getString(R.string.detail_deep_link_error_redeem_failed, e.message)
+            })
+            return null
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to redeem enrollment code: ${e.message}", e)
+            finishWithError(getString(R.string.detail_deep_link_error_redeem_failed, e.message ?: e.javaClass.simpleName))
+            return null
         }
-        return if (url.port != 80 && url.port != -1)  "http://${url.host}:${url.port}" else "http://${url.host}"
+
+        // A login may have been saved while the request was in flight; never overwrite it
+        val savedUser = repository.getUser(link.baseUrl)
+        if (savedUser == null) {
+            repository.addUser(User(baseUrl = link.baseUrl, username = redeemed.username, password = "", token = redeemed.token))
+        } else if (savedUser.username != redeemed.username) {
+            finishWithError(refuseMessage(EnrollLink.RefuseReason.OtherUser, savedUser.username))
+            return null
+        }
+        Log.d(TAG, "Signed in to ${link.baseUrl} as ${redeemed.username} with an enrollment code")
+        return redeemed.username
+    }
+
+    private suspend fun subscribeAndLoadView(link: EnrollLink, signedInAs: String?) {
+        val baseUrl = link.baseUrl
+        val topic = link.topic
+        var subscription = repository.getSubscription(baseUrl, topic)
+        val isNew = subscription == null
+        if (subscription == null) {
+            val instant = baseUrl != appBaseUrl
+            subscription = Subscription(
+                id = randomSubscriptionId(),
+                baseUrl = baseUrl,
+                topic = topic,
+                instant = instant,
+                dedicatedChannels = false,
+                mutedUntil = 0,
+                minPriority = Repository.MIN_PRIORITY_USE_GLOBAL,
+                autoDelete = Repository.AUTO_DELETE_USE_GLOBAL,
+                insistent = Repository.INSISTENT_MAX_PRIORITY_USE_GLOBAL,
+                lastNotificationId = null,
+                icon = null,
+                upAppId = null,
+                upConnectorToken = null,
+                displayName = link.displayName,
+                totalCount = 0,
+                newCount = 0,
+                lastActive = Date().time/1000
+            )
+            repository.addSubscription(subscription)
+
+            // Subscribe to Firebase topic if ntfy.sh (even if instant, just to be sure!)
+            if (baseUrl == appBaseUrl) {
+                Log.d(TAG, "Subscribing to Firebase topic $topic")
+                messenger.subscribe(topic)
+            }
+
+            // Fetch cached messages
+            try {
+                poller.poll(subscription)
+            } catch (e: Exception) {
+                Log.e(TAG, "Unable to fetch notifications: ${e.message}", e)
+            }
+        }
+
+        val toastMessage = when {
+            signedInAs != null -> getString(R.string.detail_deep_link_signed_in_toast, signedInAs, topicShortUrl(baseUrl, topic))
+            isNew -> getString(R.string.detail_deep_link_subscribed_toast_message, topicShortUrl(baseUrl, topic))
+            else -> null
+        }
+        if (toastMessage != null) {
+            runOnUiThread {
+                Toast.makeText(this@DetailActivity, toastMessage, Toast.LENGTH_LONG).show()
+            }
+        }
+
+        // Add extras needed in loadView(); normally these are added in MainActivity
+        intent.putExtra(MainActivity.EXTRA_SUBSCRIPTION_ID, subscription.id)
+        intent.putExtra(MainActivity.EXTRA_SUBSCRIPTION_BASE_URL, subscription.baseUrl)
+        intent.putExtra(MainActivity.EXTRA_SUBSCRIPTION_TOPIC, subscription.topic)
+        intent.putExtra(MainActivity.EXTRA_SUBSCRIPTION_DISPLAY_NAME, displayName(appBaseUrl, subscription))
+        intent.putExtra(MainActivity.EXTRA_SUBSCRIPTION_INSTANT, subscription.instant)
+        intent.putExtra(MainActivity.EXTRA_SUBSCRIPTION_MUTED_UNTIL, subscription.mutedUntil)
+
+        runOnUiThread {
+            loadView()
+        }
+    }
+
+    private fun refuseMessage(reason: EnrollLink.RefuseReason, savedUsername: String?): String {
+        return when (reason) {
+            EnrollLink.RefuseReason.InsecureCode -> getString(R.string.detail_deep_link_error_insecure_code)
+            EnrollLink.RefuseReason.OtherUser -> getString(R.string.detail_deep_link_error_other_user, savedUsername)
+            EnrollLink.RefuseReason.AuthorizationHeader -> getString(R.string.detail_deep_link_error_authorization_header)
+        }
+    }
+
+    private fun finishWithError(message: String) {
+        runOnUiThread {
+            Toast.makeText(this@DetailActivity, message, Toast.LENGTH_LONG).show()
+            finish()
+        }
+    }
+
+    // Shown in the account's token list on the server, so the user can tell devices apart
+    private fun deviceLabel(): String {
+        val deviceName = Settings.Global.getString(contentResolver, Settings.Global.DEVICE_NAME)
+        return "${deviceName?.ifBlank { null } ?: Build.MODEL} (ntfy Android)"
     }
 
     private fun loadView() {

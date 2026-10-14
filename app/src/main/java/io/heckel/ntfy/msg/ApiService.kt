@@ -24,7 +24,6 @@ import java.net.URLEncoder
 
 class ApiService(private val context: Context) {
     private val repository = Repository.getInstance(context)
-    private val gson = Gson()
     private val parser = NotificationParser()
 
     suspend fun publish(
@@ -98,17 +97,8 @@ class ApiService(private val context: Context) {
             } else if (response.code == 413) {
                 throw EntityTooLargeException()
             } else if (!response.isSuccessful) {
-                // Try to parse error response from server
-                val errorBody = response.body.string()
-                val apiError = try {
-                    gson.fromJson(errorBody, ErrorResponse::class.java)
-                } catch (e: Exception) {
-                    null
-                }
-                if (apiError?.error != null && apiError.code != null) {
-                    throw ApiException(apiError.error, apiError.code)
-                }
-                throw Exception("Unexpected response ${response.code} when publishing to $url")
+                throw parseApiException(response.body.string())
+                    ?: Exception("Unexpected response ${response.code} when publishing to $url")
             }
             Log.d(TAG, "Successfully published to $url")
         }
@@ -186,6 +176,11 @@ class ApiService(private val context: Context) {
         }
     }
 
+    suspend fun redeemToken(baseUrl: String, code: String, label: String): TokenRedeemer.RedeemedToken {
+        val customHeaders = repository.getCustomHeaders(baseUrl)
+        return TokenRedeemer(HttpUtil.defaultClient(context, baseUrl)).redeem(baseUrl, code, label, customHeaders)
+    }
+
     class UnauthorizedException(val user: User?) : Exception()
     class EntityTooLargeException : Exception()
     class ApiException(val error: String, val code: Int) : Exception(error)
@@ -198,6 +193,19 @@ class ApiService(private val context: Context) {
 
     companion object {
         private const val TAG = "NtfyApiService"
+
+        /** Parses a server error body like {"code":40060,"http":400,"error":"..."}, or returns null if it isn't one. */
+        fun parseApiException(body: String): ApiException? {
+            val apiError = try {
+                Gson().fromJson(body, ErrorResponse::class.java)
+            } catch (_: Exception) {
+                null
+            }
+            if (apiError?.error != null && apiError.code != null) {
+                return ApiException(apiError.error, apiError.code)
+            }
+            return null
+        }
 
         // These constants have corresponding values in the server codebase!
         const val CONTROL_TOPIC = "~control"

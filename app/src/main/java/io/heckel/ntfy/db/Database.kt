@@ -260,7 +260,9 @@ class Converters {
 data class User(
     @PrimaryKey @ColumnInfo(name = "baseUrl") val baseUrl: String,
     @ColumnInfo(name = "username") val username: String,
-    @ColumnInfo(name = "password") val password: String
+    @ColumnInfo(name = "password") val password: String,
+    // Access token from an enrollment link; when set, it is sent as Bearer auth and password is empty
+    @ColumnInfo(name = "token") val token: String? = null
 ) {
     override fun toString(): String = username
 }
@@ -299,7 +301,7 @@ data class LogEntry(
 }
 
 @androidx.room.Database(
-    version = 18,
+    version = 19,
     entities = [
         Subscription::class,
         Notification::class,
@@ -345,6 +347,7 @@ abstract class Database : RoomDatabase() {
                     .addMigrations(MIGRATION_15_16)
                     .addMigrations(MIGRATION_16_17)
                     .addMigrations(MIGRATION_17_18)
+                    .addMigrations(MIGRATION_18_19)
                     .fallbackToDestructiveMigration(true)
                     .build()
                 this.instance = instance
@@ -483,6 +486,12 @@ abstract class Database : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE Notification ADD COLUMN sequenceId TEXT NOT NULL DEFAULT ''")
                 db.execSQL("UPDATE Notification SET sequenceId = id WHERE sequenceId = ''")
+            }
+        }
+
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE User ADD COLUMN token TEXT")
             }
         }
     }

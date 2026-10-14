@@ -7,6 +7,7 @@ import io.heckel.ntfy.backup.Backuper
 import io.heckel.ntfy.db.Database
 import io.heckel.ntfy.db.LogDao
 import io.heckel.ntfy.db.LogEntry
+import io.heckel.ntfy.db.User
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -65,7 +66,8 @@ class Log(private val logsDao: LogDao) {
     }
 
     fun addScrubTerm(term: String, type: TermType = TermType.Term) {
-        if (scrubTerms[term] != null || IGNORE_TERMS.contains(term)) {
+        // An empty term would be inserted between every character of every line
+        if (term.isEmpty() || scrubTerms[term] != null || IGNORE_TERMS.contains(term)) {
             return
         }
         if (type == TermType.Password) {
@@ -192,6 +194,13 @@ class Log(private val logsDao: LogDao) {
 
         fun addScrubTerm(term: String, type: TermType = TermType.Term) {
             getInstance()?.addScrubTerm(term, type)
+        }
+
+        fun addScrubTerms(user: User) {
+            addScrubTerm(shortUrl(user.baseUrl), TermType.Domain)
+            addScrubTerm(user.username, TermType.Username)
+            addScrubTerm(user.password, TermType.Password)
+            user.token?.let { addScrubTerm(it, TermType.Password) }
         }
 
         fun init(context: Context) {

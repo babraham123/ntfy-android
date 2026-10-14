@@ -221,7 +221,8 @@ class Backuper(val context: Context) {
                 repository.addUser(io.heckel.ntfy.db.User(
                     baseUrl = u.baseUrl,
                     username = u.username,
-                    password = u.password
+                    password = u.password,
+                    token = u.token
                 ))
             } catch (e: Exception) {
                 Log.w(TAG, "Unable to restore user ${u.baseUrl} / ${u.username}: ${e.message}. Ignoring.", e)
@@ -372,7 +373,8 @@ class Backuper(val context: Context) {
             User(
                 baseUrl = u.baseUrl,
                 username = u.username,
-                password = u.password
+                password = u.password,
+                token = u.token
             )
         }
     }
@@ -498,7 +500,8 @@ data class Icon(
 data class User(
     val baseUrl: String,
     val username: String,
-    val password: String
+    val password: String,
+    val token: String? // Nullable to handle backups from older versions
 )
 
 data class TrustedCertificateBackup(
